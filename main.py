@@ -106,7 +106,7 @@ def get_issues_by_label(label_name: str):
 
 @app.post("/webhook/github")
 async def github_webhook(request: Request, x_hub_signature_256: str = Header(None)):
-    secret = "github_webhook_secret"  # must match GitHub webhook secret
+    secret = b"github_webhook_secret"  # must match GitHub webhook secret
     body = await request.body()
 
     # Verify the payload signature (for security)
