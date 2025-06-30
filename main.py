@@ -106,19 +106,203 @@ def get_issues_by_label(label_name: str):
 
 @app.post("/webhook/github")
 async def github_webhook(request: Request, x_hub_signature_256: str = Header(None)):
-    secret = b"github_webhook_secret"  # must match GitHub webhook secret
+    secret = b"github_webhook_secret"  # Replace with your actual secret
     body = await request.body()
 
-    # Verify the payload signature (for security)
+    # Signature verification
     hashed = hmac.new(secret, body, hashlib.sha256).hexdigest()
     expected_signature = f"sha256={hashed}"
-
     if not hmac.compare_digest(expected_signature, x_hub_signature_256 or ""):
         return {"message": "Invalid signature"}
 
     payload = await request.json()
-    print("Received GitHub Webhook:", payload)
+    action = payload.get("action")
 
-    # Do something with the webhook data here
+    # 1. Sub-Issue Added (custom event)
+    if action == "sub_issue_added":
+        sub_issue = payload.get("sub_issue", {})
+        parent_issue = payload.get("parent_issue", {})
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
 
-    return {"message": "Webhook received successfully"}
+        return {
+            "event": "sub_issue_added",
+            "repository": repository.get("full_name"),
+            "sub_issue": {
+                "id": sub_issue.get("id"),
+                "title": sub_issue.get("title"),
+                "body": sub_issue.get("body"),
+                "url": sub_issue.get("html_url"),
+                "created_at": sub_issue.get("created_at"),
+                "state": sub_issue.get("state"),
+                "created_by": sub_issue.get("user", {}).get("login"),
+            },
+            "parent_issue": {
+                "id": parent_issue.get("id"),
+                "title": parent_issue.get("title"),
+                "url": parent_issue.get("html_url"),
+                "created_by": parent_issue.get("user", {}).get("login"),
+            },
+            "triggered_by": sender.get("login")
+        }
+
+    # 2. Issue Assigned
+    if action == "assigned":
+        issue = payload.get("issue", {})
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
+        assignee = payload.get("assignee", {})
+
+        return {
+            "event": "issue_assigned",
+            "repository": repository.get("full_name"),
+            "issue_title": issue.get("title"),
+            "issue_body": issue.get("body"),
+            "issue_url": issue.get("html_url"),
+            "assigned_to": assignee.get("login"),
+            "assigned_by": sender.get("login"),
+            "created_at": issue.get("created_at"),
+            "state": issue.get("state")
+        }
+
+    # 3. Issue Opened
+    if action == "opened":
+        issue = payload.get("issue", {})
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
+
+        return {
+            "event": "issue_opened",
+            "repository": repository.get("full_name"),
+            "title": issue.get("title"),
+            "body": issue.get("body"),
+            "url": issue.get("html_url"),
+            "created_by": sender.get("login"),
+            "created_at": issue.get("created_at"),
+            "state": issue.get("state")
+        }
+
+    # 4. Push Event
+    if "commits" in payload and "head_commit" in payload:
+        head_commit = payload.get("head_commit", {})
+        repository = payload.get("repository", {})
+        pusher = payload.get("pusher", {})
+
+        return {
+            "event": "push",
+            "repository": repository.get("full_name"),
+            "branch": payload.get("ref", "").replace("refs/heads/", ""),
+            "committed_by": pusher.get("name"),
+            "message": head_commit.get("message"),
+            "url": head_commit.get("url"),
+            "added": head_commit.get("added", []),
+            "modified": head_commit.get("modified", []),
+            "removed": head_commit.get("removed", []),
+            "timestamp": head_commit.get("timestamp")
+        }
+
+    # 5. Parent Issue Added (custom event)
+    if action == "parent_issue_added":
+        parent_issue = payload.get("parent_issue", {})
+        sub_issue = payload.get("sub_issue", {})
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
+
+        return {
+            "event": "parent_issue_added",
+            "repository": repository.get("full_name"),
+            "parent_issue": {
+                "id": parent_issue.get("id"),
+                "title": parent_issue.get("title"),
+                "url": parent_issue.get("html_url"),
+                "created_by": parent_issue.get("user", {}).get("login"),
+            },
+            "sub_issue": {
+                "id": sub_issue.get("id"),
+                "title": sub_issue.get("title"),
+                "body": sub_issue.get("body"),
+                "url": sub_issue.get("html_url"),
+                "created_at": sub_issue.get("created_at"),
+                "state": sub_issue.get("state"),
+                "created_by": sub_issue.get("user", {}).get("login"),
+            },
+            "triggered_by": sender.get("login")
+        }
+
+    # 6. Sub-Issue Opened (from your provided payload)
+    if action == "opened" and payload.get("issue", {}).get("title", "").startswith("sub-issue"):
+        issue = payload.get("issue", {})
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
+
+        return {
+            "event": "sub_issue_opened",
+            "repository": repository.get("full_name"),
+            "title": issue.get("title"),
+            "body": issue.get("body"),
+            "url": issue.get("html_url"),
+            "created_by": sender.get("login"),
+            "created_at": issue.get("created_at"),
+            "state": issue.get("state"),
+            "sub_issue_summary": issue.get("sub_issues_summary", {})
+        }
+
+    # 7. Pull-Request Assigned (from your provided payload)
+    if action == "assigned" and "pull_request" in payload:
+        pr = payload["pull_request"]
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
+        assignee = payload.get("assignee", {})
+
+        return {
+            "event": "pull_request_assigned",
+            "repository": repository.get("full_name"),
+            "pull_request_title": pr.get("title"),
+            "pull_request_body": pr.get("body"),
+            "pull_request_url": pr.get("html_url"),
+            "assigned_to": assignee.get("login"),
+            "assigned_by": sender.get("login"),
+            "created_at": pr.get("created_at"),
+            "state": pr.get("state")
+        }
+
+    # 8. Pull-Request Opened (from your provided payload)
+    if action == "opened" and "pull_request" in payload:
+        pr = payload["pull_request"]
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
+
+        return {
+            "event": "pull_request_opened",
+            "repository": repository.get("full_name"),
+            "pull_request_title": pr.get("title"),
+            "pull_request_body": pr.get("body"),
+            "pull_request_url": pr.get("html_url"),
+            "created_by": sender.get("login"),
+            "created_at": pr.get("created_at"),
+            "state": pr.get("state"),
+            "base_branch": pr.get("base", {}).get("ref"),
+            "head_branch": pr.get("head", {}).get("ref"),
+        }
+
+    # 9. Pull Request Labeled
+    if action == "labeled" and "pull_request" in payload:
+        pr = payload.get("pull_request", {})
+        repository = payload.get("repository", {})
+        sender = payload.get("sender", {})
+        label = payload.get("label", {})
+
+        return {
+            "event": "pull_request_labeled",
+            "repository": repository.get("full_name"),
+            "pull_request_title": pr.get("title"),
+            "pull_request_url": pr.get("html_url"),
+            "label_added": label.get("name"),
+            "labeled_by": sender.get("login"),
+            "created_at": pr.get("created_at"),
+            "state": pr.get("state"),
+        }
+
+    # Default
+    return {"message": f"Unhandled action: {action}"}
+
