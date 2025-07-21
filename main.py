@@ -305,4 +305,3 @@ async def github_webhook(request: Request, x_hub_signature_256: str = Header(Non
 
     # Default
     return {"message": f"Unhandled action: {action}"}
-
