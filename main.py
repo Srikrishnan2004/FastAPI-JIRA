@@ -213,7 +213,7 @@ async def github_webhook(request: Request, x_hub_signature_256: str = Header(Non
             # The payload your service expects
             automation_payload = {
                 "commit_message": commit_message,
-                "repo": repo_full_name
+                "repo": "ecommerce-app-krishna"
             }
 
             try:
