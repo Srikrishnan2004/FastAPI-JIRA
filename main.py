@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import List
 import hmac
 import hashlib
+import logging
 
 class Settings(BaseSettings):
     jira_email: str
@@ -188,18 +189,58 @@ async def github_webhook(request: Request, x_hub_signature_256: str = Header(Non
         repository = payload.get("repository", {})
         pusher = payload.get("pusher", {})
 
-        return {
+        commit_message = head_commit.get("message")
+        repo_full_name = repository.get("full_name")
+
+        # Prepare the response for the webhook
+        webhook_response = {
             "event": "push",
-            "repository": repository.get("full_name"),
+            "repository": repo_full_name,
             "branch": payload.get("ref", "").replace("refs/heads/", ""),
             "committed_by": pusher.get("name"),
-            "message": head_commit.get("message"),
+            "message": commit_message,
             "url": head_commit.get("url"),
-            "added": head_commit.get("added", []),
-            "modified": head_commit.get("modified", []),
-            "removed": head_commit.get("removed", []),
-            "timestamp": head_commit.get("timestamp")
+            "jira_ticket_automation_status": {}  # Placeholder for the result
         }
+
+        # --- Call your deployed Cloud Run function ---
+        if commit_message and repo_full_name:
+            logging.info(f"Push event received. Triggering Jira ticket generation for commit: {commit_message}")
+
+            # The URL of your deployed Jira ticket automation service
+            jira_automation_url = "https://fastapi-jira-ticket-generator-632246617707.asia-south1.run.app/generate_ticket"
+
+            # The payload your service expects
+            automation_payload = {
+                "commit_message": commit_message,
+                "repo": repo_full_name
+            }
+
+            try:
+                # Make the POST request to your service
+                response = requests.post(jira_automation_url, json=automation_payload)
+                response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+
+                # Add the successful response to our webhook response
+                webhook_response["jira_ticket_automation_status"] = {
+                    "status": "success",
+                    "response": response.json()
+                }
+                logging.info(f"Successfully triggered Jira ticket generation. Response: {response.json()}")
+
+            except requests.exceptions.RequestException as e:
+                # Add the error to our webhook response
+                error_detail = str(e)
+                if e.response is not None:
+                    error_detail = e.response.text
+
+                webhook_response["jira_ticket_automation_status"] = {
+                    "status": "error",
+                    "detail": error_detail
+                }
+                logging.error(f"Failed to trigger Jira ticket generation. Error: {error_detail}")
+
+        return webhook_response
 
     # 5. Parent Issue Added (custom event)
     if action == "parent_issue_added":
