@@ -305,3 +305,31 @@ async def github_webhook(request: Request, x_hub_signature_256: str = Header(Non
 
     # Default
     return {"message": f"Unhandled action: {action}"}
+
+@app.post("/webhook/jira")
+async def jira_webhook(request: Request):
+    body = await request.body()
+
+    # Optional: Verify signature if you're sending one from Jira (you can also skip this part)
+    # For now we assume shared secret validation is done manually here
+    # For example: hash-based comparison if Jira adds support for HMAC (currently it doesn't)
+
+    payload = await request.json()
+    webhook_event = payload.get("webhookEvent")
+
+    issue = payload.get("issue", {})
+    issue_key = issue.get("key")
+    issue_fields = issue.get("fields", {})
+    summary = issue_fields.get("summary")
+    issue_type = issue_fields.get("issuetype", {}).get("name")
+    status = issue_fields.get("status", {}).get("name")
+    reporter = issue_fields.get("reporter", {}).get("displayName")
+
+    return {
+        "event": webhook_event,
+        "issue_key": issue_key,
+        "summary": summary,
+        "type": issue_type,
+        "status": status,
+        "reported_by": reporter
+    }
