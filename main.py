@@ -213,7 +213,8 @@ async def github_webhook(request: Request, x_hub_signature_256: str = Header(Non
             # The payload your service expects
             automation_payload = {
                 "commit_message": commit_message,
-                "repo": "ecommerce-app-krishna"
+                "repo": "ecommerce-app-krishna",
+                "assignee_email": "srikrishnan2210608@ssn.edu.in"
             }
 
             try:
@@ -356,7 +357,7 @@ async def jira_webhook(request: Request):
     # For example: hash-based comparison if Jira adds support for HMAC (currently it doesn't)
 
     payload = await request.json()
-    print(payload);
+    print(payload)
     webhook_event = payload.get("webhookEvent")
 
     issue = payload.get("issue", {})
