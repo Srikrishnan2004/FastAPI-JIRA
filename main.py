@@ -50,6 +50,42 @@ def fetch_versions() -> List[VersionNameOnly]:
     versions = response.json()
     return [VersionNameOnly(name=v["name"]) for v in versions]
 
+
+# --- Reusable function to call the Jira Automation Service ---
+def call_jira_automation_service(text_to_process: str, repo_name: str, assignee_email: str) -> dict:
+    """
+    Calls the external Jira ticket automation service.
+    Returns a dictionary with the status of the call.
+    """
+    logging.info(f"Triggering Jira ticket generation for: {text_to_process}")
+
+    jira_automation_url = "https://fastapi-jira-ticket-generator-632246617707.asia-south1.run.app/generate_ticket"
+
+    automation_payload = {
+        "commit_message": text_to_process,
+        "repo": repo_name,
+        "assignee_email": assignee_email
+    }
+
+    try:
+        response = requests.post(jira_automation_url, json=automation_payload)
+        response.raise_for_status()
+        logging.info(f"Successfully triggered Jira ticket generation. Response: {response.json()}")
+        return {
+            "status": "success",
+            "response": response.json()
+        }
+    except requests.exceptions.RequestException as e:
+        error_detail = str(e)
+        if e.response is not None:
+            error_detail = e.response.text
+        logging.error(f"Failed to trigger Jira ticket generation. Error: {error_detail}")
+        return {
+            "status": "error",
+            "detail": error_detail
+        }
+
+
 @app.get("/projects")
 def get_projects():
     url = f"{settings.jira_base_url}/rest/api/3/project"
@@ -167,20 +203,29 @@ async def github_webhook(request: Request, x_hub_signature_256: str = Header(Non
         }
 
     # 3. Issue Opened
-    if action == "opened":
+    if action == "opened" and "issue" in payload:
         issue = payload.get("issue", {})
         repository = payload.get("repository", {})
         sender = payload.get("sender", {})
 
+        issue_title = issue.get("title")
+        repo_full_name = repository.get("full_name")
+
+        automation_status = {}
+        if issue_title and repo_full_name:
+            automation_status = call_jira_automation_service(
+                text_to_process=issue_title,
+                repo_name="ecommerce-app-krishna",
+                assignee_email="srikrishnan2210608@ssn.edu.in"
+            )
+
         return {
             "event": "issue_opened",
-            "repository": repository.get("full_name"),
-            "title": issue.get("title"),
-            "body": issue.get("body"),
+            "repository": repo_full_name,
+            "title": issue_title,
             "url": issue.get("html_url"),
             "created_by": sender.get("login"),
-            "created_at": issue.get("created_at"),
-            "state": issue.get("state")
+            "jira_ticket_automation_status": automation_status
         }
 
     # 4. Push Event
@@ -192,56 +237,21 @@ async def github_webhook(request: Request, x_hub_signature_256: str = Header(Non
         commit_message = head_commit.get("message")
         repo_full_name = repository.get("full_name")
 
-        # Prepare the response for the webhook
-        webhook_response = {
+        automation_status = {}
+        if commit_message and repo_full_name:
+            automation_status = call_jira_automation_service(
+                text_to_process=commit_message,
+                repo_name="ecommerce-app-krishna",
+                assignee_email="srikrishnan2210608@ssn.edu.in"
+            )
+
+        return {
             "event": "push",
             "repository": repo_full_name,
-            "branch": payload.get("ref", "").replace("refs/heads/", ""),
-            "committed_by": pusher.get("name"),
             "message": commit_message,
             "url": head_commit.get("url"),
-            "jira_ticket_automation_status": {}  # Placeholder for the result
+            "jira_ticket_automation_status": automation_status
         }
-
-        # --- Call your deployed Cloud Run function ---
-        if commit_message and repo_full_name:
-            logging.info(f"Push event received. Triggering Jira ticket generation for commit: {commit_message}")
-
-            # The URL of your deployed Jira ticket automation service
-            jira_automation_url = "https://fastapi-jira-ticket-generator-632246617707.asia-south1.run.app/generate_ticket"
-
-            # The payload your service expects
-            automation_payload = {
-                "commit_message": commit_message,
-                "repo": "ecommerce-app-krishna",
-                "assignee_email": "srikrishnan2210608@ssn.edu.in"
-            }
-
-            try:
-                # Make the POST request to your service
-                response = requests.post(jira_automation_url, json=automation_payload)
-                response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-
-                # Add the successful response to our webhook response
-                webhook_response["jira_ticket_automation_status"] = {
-                    "status": "success",
-                    "response": response.json()
-                }
-                logging.info(f"Successfully triggered Jira ticket generation. Response: {response.json()}")
-
-            except requests.exceptions.RequestException as e:
-                # Add the error to our webhook response
-                error_detail = str(e)
-                if e.response is not None:
-                    error_detail = e.response.text
-
-                webhook_response["jira_ticket_automation_status"] = {
-                    "status": "error",
-                    "detail": error_detail
-                }
-                logging.error(f"Failed to trigger Jira ticket generation. Error: {error_detail}")
-
-        return webhook_response
 
     # 5. Parent Issue Added (custom event)
     if action == "parent_issue_added":
