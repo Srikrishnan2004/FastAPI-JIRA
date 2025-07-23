@@ -356,6 +356,7 @@ async def jira_webhook(request: Request):
     # For example: hash-based comparison if Jira adds support for HMAC (currently it doesn't)
 
     payload = await request.json()
+    print(payload);
     webhook_event = payload.get("webhookEvent")
 
     issue = payload.get("issue", {})
